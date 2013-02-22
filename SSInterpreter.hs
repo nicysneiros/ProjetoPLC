@@ -140,6 +140,7 @@ state =
           $ insert "if"             (Native ifThenElse)
           $ insert "cons"           (Native concatenation)
           $ insert "length"         (Native lengthList)
+          $ insert "--"             (Native comment)
             empty
 
 type StateT = Map String LispVal
@@ -308,6 +309,11 @@ concatenation l = Error "wrong number of arguments."
 lengthList :: [LispVal] -> LispVal
 lengthList ((List l):_) = Number (toInteger (length l))
 lengthList ls = Error "wrong number of arguments."
+
+
+comment:: [LispVal] -> LispVal
+comment ls = String(" ")
+
 
 -----------------------------------------------------------
 --                     main FUNCTION                     --

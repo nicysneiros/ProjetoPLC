@@ -1,4 +1,4 @@
 *.o
 *.hi
-SSInterpreter
-.gitignor*
+SSInterpreter.exe
+schemeCode.scm

@@ -70,13 +70,16 @@ eval (List (Atom "list-comp": var:(Atom v):result:condition:[])) = ST (\s a -> l
 eval (List (Atom "list-comp": args)) = maybe (return (List (listComp args))) (\v -> return v) (Map.lookup "list-comp" state)
 -}
 
+eval (List (Atom "list-comp": var:listEvaluation:result:condition:[])) = listComp (var:listEvaluation:result:condition:[])
 
+{-
 eval (List (Atom "list-comp": var:listEvaluation:result:condition:[])) = ST (\s a -> let (ST m1) = eval listEvaluation
                                                                                          (r1, s1, a1) = m1 s a
                                                                                          r2 = listComp (var:r1:result:condition:[]) 
                                                                                      in  (List r2, s, a)
                                                                             )
 eval (List (Atom "list-comp": args)) = maybe (return (List (listComp args))) (\v -> return v) (Map.lookup "list-comp" state)
+-}
 
 
 eval (List (Atom func : args)) = mapM eval args >>= apply func 
@@ -150,7 +153,7 @@ setVarAux id val =
 
 ---------------------------------------------------
 --LIST-COMP
-
+{-
 listComp :: [LispVal] -> [LispVal]
 listComp ((Atom var):(List []):result:condition:[]) = []
 listComp ((Atom var):(List (x:xs)):result:condition:[]) = if (test == (Bool True)) then (xResult:(listComp ((Atom var):(List xs):result:condition:[]))) else (listComp ((Atom var):(List xs):result:condition:[]))
@@ -158,7 +161,29 @@ listComp ((Atom var):(List (x:xs)):result:condition:[]) = if (test == (Bool True
                                                                   (test, newS, newA) = m Map.empty Map.empty --pegar o resultado da condição
                                                                   (ST m2) = (ST m) >> eval result
                                                                   (xResult, newS2, newA2) = m2 Map.empty Map.empty --pegar o resultado da operação sobre o elemento que será inserido na lista
-listComp _ = [Error "wrong number of arguments. listComp"]
+listComp _ = [Error "wrong number of arguments. listComp"]-}
+
+listCompRec :: [LispVal] -> StateTransformer LispVal
+listCompRec ((Atom var):(List (x:xs)):result:condition:[]) = setVar [Atom var,x] >> ST (\s a -> let (ST m1) = eval condition
+                                                                                                    ((Bool test), newS1, newA1) = m1 s a -- Pegando o resultado da condição (test)
+                                                                                                    (ST m2) = eval result 
+                                                                                                    (r2, newS2, newA2) = m2 s a -- Calculamos a função aplicada ao elemento (result)
+                                                                                                    (ST m3) = listCompRec ((Atom var):(List xs):result:condition:[]) -- Chamamos para o resto (mesmo sem saber se vai usar o resto ou nao)
+                                                                                                    (List r3, newS3, newA3) = m3 newS2 newA2 -- Pegamos o resultado dessa chamada recursiva acima /\
+                                                                                                    r4 = if (test) then (r2:r3) else r3 -- Se tiver passado no test, entra no resultado final, senao, fica apenas o resultado da chamada recursiva
+                                                                                                in (List r4, s, a)
+                                                                                              )
+listCompRec ((Atom var):(List []):result:condition:[]) = ST (\s a->(List [],s,a))
+listCompRec _ = return (Error "wrong number of arguments. listComp")
+
+listComp :: [LispVal] -> StateTransformer LispVal
+listComp args@((Atom var):list:result:condition:[]) = ST (\s a -> let (ST m1) = eval list
+                                                                      (r1, newS1, newA1) = m1 s a -- Precisamos evaluar a lista porque ela pode não ser dada diretamente, e.g. pode ser uma funcao ou variável que retorna uma lista, etc.
+                                                                      (ST m) = defineLocalVar var (Number 0) >> listCompRec ((Atom var):r1:result:condition:[]) --Definimos a variável local e processamos a listComp recursiva
+                                                                      (r,newS,newA) = m s a
+                                                                  in (r,s,a)
+                                                          ) 
+listComp _ = return (Error "wrong number of arguments. listComp")
 
 ---------------------------------------------------
 --DO
@@ -167,9 +192,7 @@ doVar :: [LispVal] ->StateTransformer LispVal
 doVar ((Atom var):initial:step:[]) = 
   ST (\s a -> let (ST m) = eval initial
                   (resultInit, newStateI, newAmbientI) = m s a --Avaliando o valor inicial da variavel
-                  (ST m2) = eval step
-                  (resultStep, newStateS, newAmbientS) = m2 s a --Avaliando o valor da variável aplicando a expressão do passo (step)
-              in if (var `member` a) then (resultStep, newStateS, (insert var resultStep newAmbientS)) else (resultInit, newStateS, (insert var resultInit newAmbientI))
+              in (resultInit, newStateI, (insert var resultInit newAmbientI))
       )
 
 doVarAux :: LispVal -> StateTransformer LispVal
@@ -177,28 +200,46 @@ doVarAux (List ((List initials):[])) = doVar initials
 doVarAux (List ((List initials):ls)) = doVar initials >> doVarAux (List ls)
 doVarAux _ = return (Error "wrong number of arguments. doVarAux")
 
+steps :: StateT -> LispVal -> StateTransformer LispVal
+steps env (List []) = return (List [])
+steps env (List ((List ((Atom var):initial:step:[])):ls)) = ST(\s a -> let (ST m) = eval step
+                                                                           (result, newS, newA) = m s a
+                                                                           newEnv = insert var result env
+                                                                           (ST m2) = steps newEnv (List ls)
+                                                                           (List results, newS2, newA2) = m2 s a
+                                                                       in ((List (result:results)), s, (union a newEnv)))
+
 doExpr :: [LispVal] -> StateTransformer LispVal
 doExpr (expr:[]) = eval expr
 doExpr (expr:exps) = eval expr >> doExpr exps
 
 doFunc :: LispVal -> StateTransformer LispVal
-doFunc (List ((List initials):(List (condition:exps)):[])) = doVarAux (List initials) >> 
-                                                                            ST (\s a -> let (ST m) = eval condition
-                                                                                            (resultCond, newS, newA) = m s a
-                                                                                            (ST m2) = doExpr exps
-                                                                                            (ST m3) = doFunc (List ((List initials):(List (condition:exps)):[]))
-                                                                                        in if (resultCond == (Bool True)) then (m2 s a) else (m3 s a)
-                                                                                )
-doFunc (List ((List initials):(List (condition:exps)):command:[])) = doVarAux (List initials) >> 
-                                                                            ST (\s a -> let (ST m) = eval condition
-                                                                                            (resultCond, newS, newA) = m s a
-                                                                                            (ST m2) = doExpr exps
-                                                                                            (ST m3) = eval command >> doFunc (List ((List initials):(List (condition:exps)):command:[]))
-                                                                                        in if (resultCond == (Bool True)) then (m2 s a) else (m3 s a)
-                                                                                )
-doFunc _ = return (Error "wrong number of arguments. doFunc")
+doFunc args@(List ((List initials):(List (condition:exps)):[])) = doVarAux (List initials) >> ST (\s a -> let (ST m) = eval condition
+                                                                                                              (resultCond, newS, newA) = m s a
+                                                                                                              (ST m2) = doExpr exps
+                                                                                                              (ST m3) = doFuncRec (List ((List initials):(List (condition:exps)):[]))
+                                                                                                          in if (resultCond == (Bool True)) then (m2 s a) else (m3 s a)
+                                                                                                  ) --doVarAux irá inicializar as variáveis e chama a recursão do 'do'
+doFunc args@(List ((List initials):(List (condition:exps)):command:[])) = doVarAux (List initials) >> ST (\s a -> let (ST m) = eval condition
+                                                                                                                      (resultCond, newS, newA) = m s a
+                                                                                                                      (ST m2) = doExpr exps
+                                                                                                                      (ST m3) = eval command >> doFuncRec (List ((List initials):(List (condition:exps)):command:[]))
+                                                                                                                  in if (resultCond == (Bool True)) then (m2 s a) else (m3 s a)
+                                                                                                         ) 
 
-
+doFuncRec :: LispVal ->StateTransformer LispVal
+doFuncRec (List ((List initials):(List (condition:exps)):[])) = steps Map.empty (List initials) >> ST (\s a -> let (ST m) = eval condition
+                                                                                                                   (resultCond, newS, newA) = m s a
+                                                                                                                   (ST m2) = doExpr exps
+                                                                                                                   (ST m3) = doFuncRec (List ((List initials):(List (condition:exps)):[]))
+                                                                                                               in if (resultCond == (Bool True)) then (m2 s a) else (m3 s a)
+                                                                                                      ) 
+doFuncRec (List ((List initials):(List (condition:exps)):command:[])) = steps Map.empty (List initials) >> ST (\s a -> let (ST m) = eval condition
+                                                                                                                           (resultCond, newS, newA) = m s a
+                                                                                                                           (ST m2) = doExpr exps
+                                                                                                                           (ST m3) = eval command >> doFuncRec (List ((List initials):(List (condition:exps)):command:[]))
+                                                                                                                       in if (resultCond == (Bool True)) then (m2 s a) else (m3 s a)
+                                                                                                              ) 
 -- The maybe function yields a value of type b if the evaluation of 
 -- its third argument yields Nothing. In case it yields Just x, maybe
 -- applies its second argument f to x and yields (f x) as its result.
@@ -345,13 +386,13 @@ numericSub :: [LispVal] -> LispVal
 numericSub [] = Error "wrong number of arguments. numericSub"
 numericSub [x] = if onlyNumbers [x]
                  then (\num -> (Number (- num))) (unpackNum x)
-                 else Error "not a number."
+                 else Error "not a number. numericSub"
 numericSub l = numericBinOp (-) l
 
 numericBinOp :: (Integer -> Integer -> Integer) -> [LispVal] -> LispVal
 numericBinOp op args = if onlyNumbers args 
                        then Number $ foldl1 op $ Prelude.map unpackNum args 
-                       else Error "not a number."
+                       else Error "not a number.numericBinOp"
                        
 onlyNumbers :: [LispVal] -> Bool
 onlyNumbers [] = True
@@ -454,7 +495,7 @@ biggerOrEqual ls = Error "wrong number of arguments. biggerOrEqual"
 --IGUAL
 equal :: [LispVal]  -> LispVal
 equal ((Number a):(Number b):[]) = Bool ((==) a b)
-equal ls = Error "wrong number of arguments. Equal"
+equal ls = Error ( "wrong number of arguments. Equal args = " ++ show ls)
 
 ---------------------------------------------------
 --AND
@@ -485,7 +526,7 @@ notOp ls = Error "wrong number of arguments. NotOP"
 ifThenElse :: [LispVal] -> LispVal
 ifThenElse ((Bool predicate):body1:body2:_) = if predicate then body1 else body2
 ifThenElse ((Bool predicate):body1:_) = if predicate then body1 else Error "Expression Unspecified"
-ifThenElse l = Error "wrong number of arguments. ifThenElse"
+ifThenElse l = Error ("wrong number of arguments. ifThenElse args = " ++ show(l))
 
 ---------------------------------------------------
 --CONS
@@ -501,7 +542,7 @@ concatenation l = Error "wrong number of arguments. concatenation"
 lengthList :: [LispVal] -> LispVal
 lengthList ((List l):_) = Number (toInteger (length l))
 lengthList ((String l):_) = Number (toInteger (length l))
-lengthList ls = Error "wrong number of arguments. length"
+lengthList ls = Error ("wrong number of arguments. length args = " ++ show ls)
 
 
 ---------------------------------------------------

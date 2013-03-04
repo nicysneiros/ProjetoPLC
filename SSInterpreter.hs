@@ -80,6 +80,7 @@ eval (List (Atom "list-comp": args)) = maybe (return (List (listComp args))) (\v
 
 
 eval (List (Atom func : args)) = mapM eval args >>= apply func 
+eval val@(List _) = return val
 eval (Error s)  = return (Error s)
 eval form = return (Error ("Could not eval the special form: " ++ (show form)))
 
@@ -149,6 +150,7 @@ setVarAux id val =
 
 ---------------------------------------------------
 --LIST-COMP
+
 listComp :: [LispVal] -> [LispVal]
 listComp ((Atom var):(List []):result:condition:[]) = []
 listComp ((Atom var):(List (x:xs)):result:condition:[]) = if (test == (Bool True)) then (xResult:(listComp ((Atom var):(List xs):result:condition:[]))) else (listComp ((Atom var):(List xs):result:condition:[]))
@@ -498,6 +500,7 @@ concatenation l = Error "wrong number of arguments. concatenation"
 
 lengthList :: [LispVal] -> LispVal
 lengthList ((List l):_) = Number (toInteger (length l))
+lengthList ((String l):_) = Number (toInteger (length l))
 lengthList ls = Error "wrong number of arguments. length"
 
 

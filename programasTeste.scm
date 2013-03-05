@@ -33,7 +33,6 @@
 (begin 
 	(if (and (>= 2 2) (eqv? (length (cons 'a  '(1 2 3 4 5))) 6)) (cons 'u '(h u u)) (* 2 5) (comment "Teste"))
  )
-
 ; PROGRAMA 9 [Funções utilizadas: lambda/do]:
 (begin 
 	(define null? 
@@ -47,7 +46,11 @@
 	) 
 ) 
 
-; PROGRAMA 10 (QUICKSORT):
+; PROGRAMA 10 [Funções utilizadas: define/if/or/=/set!/+ ]:
+;(begin (define a 10) (if (or (= a 1) (= a 9) ) (set! a 200) (+ a 2)  ) )
+;
+
+; PROGRAMA 11 (QUICKSORT):
 (begin 
 	(define a '(7 384 2161 39267 4623 7 291 010 3 2 1 4 2281 92 371)) 
 	(define 

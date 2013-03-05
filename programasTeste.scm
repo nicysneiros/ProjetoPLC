@@ -23,6 +23,8 @@
 ;	(if (and (>= 2 2) (eqv? (length (cons 'a  '(1 2 3 4 5))) 6)) (cons 'u '(h u u)) (* 2 5) (comment "Teste"))
 ; )
 
-; PROGRAMA 9 [Funções utilizadas: ]:
+; PROGRAMA 9 [Funções utilizadas: define/if/or/=/set!/+ ]:
+;(begin (define a 10) (if (or (= a 1) (= a 9) ) (set! a 200) (+ a 2)  ) )
+;
 
 ; PROGRAMA 10 (QUICKSORT):
